@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlowUs Lite Ultimate V3 - 交互完成版</title>
+    <style>
+        /* ================= 1. 核心变量 ================= */
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f7f9fb;
+            --bg-tertiary: #f0f2f5;
+            --bg-hover: #f5f5f5;
+            --text-primary: #37352f;
+            --text-secondary: #787774;
+            --text-tertiary: #aeb5bc;
+            --accent-blue: #4285f4;
+            --accent-green: #34a853;
+            --accent-yellow: #fbbc04;
+            --accent-red: #ea4335;
+            --border-light: #e6e6e6;
+            --sidebar-width: 260px;
+            --topbar-height: 48px;
+            --content-width: 960px;
+            
+            /* 横向时间轴变量 */
+            --ht-track-height: 48px;
+            --ht-header-height: 40px;
+            --ht-sidebar-width: 160px;
+        }
+
+        [data-theme="dark"] {
+            --bg-primary: #191919;
+            --bg-secondary: #252525;
+            --bg-hover: #333333;
+            --text-primary: #e6e6e6;
+            --text-secondary: #a6a6a6;
+            --border-light: #404040;
+        }
+
+        * { box-sizing: border-box; outline: none; }
+        body, html { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: var(--bg-primary); color: var(--text-primary); overflow: hidden; }
+        svg { width: 18px; height: 18px; fill: currentColor; display: block; }
+        .icon-small { width: 14px; height: 14px; }
+
+        /* ================= 2. 布局框架 ================= */
+        #app { display: flex; height: 100vh; width: 100vw; }
+        
+        .sidebar { width: var(--sidebar-width); background: var(--bg-secondary); border-right: 1px solid var(--border-light); display: flex; flex-direction: column; flex-shrink: 0; }
+        .sidebar-header { height: var(--topbar-height); display: flex; align-items: center; justify-content: space-between; padding: 0 16px; font-weight: 600; }
+        .sidebar-list { flex: 1; overflow-y: auto; padding: 8px; }
+        .sidebar-item { padding: 6px 10px; margin-bottom: 2px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-primary); }
+        .sidebar-item:hover { background: var(--bg-hover); }
+        .sidebar-item.active { background: var(--bg-active); font-weight: 500; }
+        .sidebar-section-title { padding: 16px 16px 4px; font-size: 11px; color: var(--text-secondary); font-weight: 700; text-transform: uppercase; }
+        .toc-list .sidebar-item { font-size: 13px; color: var(--text-secondary); }
+        .toc-list .sidebar-item.h1 { padding-left: 10px; font-weight: 600; }
+        
+        #main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+        .top-bar { height: var(--topbar-height); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; background: var(--bg-primary); border-bottom: 1px solid transparent; flex-shrink: 0; }
+        
+        .editor-scroller { flex: 1; overflow-y: auto; padding-bottom: 20vh; }
+        .editor-container { max-width: var(--content-width); margin: 0 auto; padding: 48px 60px 100px; }
+        .page-title-input { width: 100%; border: none; background: transparent; font-size: 36px; font-weight: 700; color: var(--text-primary); margin-bottom: 24px; }
+
+        /* ================= 3. 内容块通用 ================= */
+        .content-block { position: relative; margin: 4px 0; padding: 2px 0; display: flex; align-items: flex-start; }
+        
+        /* 左侧交互区域 (+ 和 拖拽) */
+        .block-gutter {
+            position: absolute; left: -44px; top: 2px; width: 40px; height: 24px;
+            display: flex; align-items: center; justify-content: flex-end; gap: 4px;
+            opacity: 0; transition: opacity 0.2s;
+        }
+        .content-block:hover .block-gutter { opacity: 1; }
+        
+        .gutter-btn {
+            width: 18px; height: 24px; display: flex; align-items: center; justify-content: center;
+            cursor: pointer; color: var(--text-tertiary); border-radius: 3px;
+        }
+        .gutter-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+        .block-content { flex: 1; min-height: 24px; font-size: 16px; line-height: 1.6; word-break: break-word; outline: none; }
+        .block-content:empty::before { content: attr(data-placeholder); color: var(--text-tertiary); pointer-events: none; }
+        
+        [data-type="h1"] .block-content { font-size: 30px; font-weight: 700; margin-top: 16px; }
+        
+        .block-toolbar {
+            display: flex; align-items: center; justify-content: space-between;
+            background: var(--bg-secondary); border: 1px solid var(--border-light); border-bottom: none;
+            border-radius: 6px 6px 0 0; padding: 6px 12px; font-size: 13px; margin-top: 12px;
+        }
+        .block-title-edit { font-weight: 600; color: var(--text-primary); border: none; background: transparent; width: 200px; }
+        .toolbar-actions { display: flex; gap: 8px; }
+        .tiny-btn { padding: 2px 8px; border-radius: 4px; background: var(--bg-primary); border: 1px solid var(--border-light); font-size: 12px; cursor: pointer; }
+        .tiny-btn:hover { background: var(--bg-hover); }
+
+        /* ================= 4. 垂直时间轴 (Vertical Timeline) ================= */
+        .timeline-v2-container { 
+            width: 100%; border: 1px solid var(--border-light); border-radius: 0 0 6px 6px; padding: 16px; 
+            background: var(--bg-secondary);
+        }
+        .tl-v-item { display: flex; gap: 12px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px dashed var(--border-light); }
+        .tl-v-item:last-child { border-bottom: none; margin-bottom: 0; }
+        .tl-v-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent-blue); margin-top: 6px; flex-shrink: 0; }
+        .tl-v-content { flex: 1; }
+        .tl-v-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; outline: none; }
+        .tl-v-meta { font-size: 12px; color: var(--text-secondary); display: flex; gap: 8px; }
+        .tl-v-date, .tl-v-status { outline: none; cursor: text; }
+        .tl-v-date:hover, .tl-v-status:hover { color: var(--accent-blue); background: rgba(0,0,0,0.05); border-radius: 3px; }
+
+        /* ================= 5. 横向时间轴 (Horizontal Timeline) ================= */
+        /* 容器 */
+        .ht-wrapper { width: 100%; transition: all 0.3s ease; }
+        /* 全屏模式关键样式 */
+        .ht-fullscreen { 
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 3000; 
+            background: var(--bg-primary); padding: 20px; box-sizing: border-box; 
+            display: flex; flex-direction: column;
+        }
+        .ht-fullscreen .ht-container { height: 100%; flex: 1; }
+
+        .ht-container {
+            width: 100%; border: 1px solid var(--border-light); border-radius: 0 0 6px 6px;
+            height: 320px; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-primary);
+        }
+        
+        .ht-header { height: var(--ht-header-height); background: var(--bg-secondary); border-bottom: 1px solid var(--border-light); display: flex; flex-shrink: 0; }
+        .ht-corner { width: var(--ht-sidebar-width); border-right: 1px solid var(--border-light); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; color: var(--text-tertiary); }
+        .ht-time-scale { flex: 1; display: flex; overflow: hidden; position: relative; }
+        .ht-time-cell { height: 100%; border-right: 1px solid var(--border-light); display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--text-secondary); flex-shrink: 0; user-select: none; }
+
+        .ht-body { flex: 1; display: flex; overflow: auto; position: relative; }
+        .ht-tracks { width: var(--ht-sidebar-width); border-right: 1px solid var(--border-light); flex-shrink: 0; background: var(--bg-primary); z-index: 2; position: sticky; left: 0; }
+        .ht-track-name { height: var(--ht-track-height); border-bottom: 1px solid var(--border-light); display: flex; align-items: center; padding: 0 12px; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        .ht-grid { flex: 1; position: relative; min-width: max-content; }
+        .ht-grid-bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-image: linear-gradient(90deg, var(--border-light) 1px, transparent 1px); background-size: 60px 100%; pointer-events: none; }
+        .ht-track-row { height: var(--ht-track-height); border-bottom: 1px solid var(--border-light); position: relative; }
+        .ht-track-row:nth-child(even) { background-color: rgba(0,0,0,0.015); }
+
+        /* 事件条 */
+        .ht-event-bar {
+            position: absolute; top: 10px; height: 28px; border-radius: 4px;
+            background: var(--accent-blue); color: white; font-size: 12px;
+            padding: 0 8px; display: flex; align-items: center; cursor: grab;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1); user-select: none;
+            overflow: hidden; white-space: nowrap;
+            /* 关键优化：平滑过渡 */
+            transition: box-shadow 0.2s;
+        }
+        /* 拖拽时取消所有 transition 以保证跟手 */
+        .ht-event-bar.dragging { opacity: 0.9; cursor: grabbing; z-index: 100; transition: none; box-shadow: 0 8px 16px rgba(0,0,0,0.2); }
+
+        .ht-resize-handle { position: absolute; top: 0; bottom: 0; width: 10px; cursor: col-resize; z-index: 20; }
+        .ht-resize-handle:hover { background: rgba(0,0,0,0.1); }
+        .ht-resize-handle.left { left: 0; }
+        .ht-resize-handle.right { right: 0; }
+
+        /* ================= 6. 弹窗菜单 (智能定位) ================= */
+        .popup-menu {
+            position: fixed; z-index: 5000; background: var(--bg-primary); border: 1px solid var(--border-light);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15); border-radius: 6px; width: 200px; padding: 6px 0;
+            max-height: 300px; overflow-y: auto;
+            opacity: 0; pointer-events: none; transition: opacity 0.1s;
+        }
+        .popup-menu.show { opacity: 1; pointer-events: auto; }
+        .menu-header { font-size: 11px; color: var(--text-secondary); padding: 6px 12px; font-weight: 700; background: var(--bg-secondary); }
+        .menu-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; cursor: pointer; }
+        .menu-item:hover { background: var(--accent-blue); color: white; }
+        .menu-icon { width: 20px; display: flex; justify-content: center; }
+
+        /* ================= 7. 其他辅助 ================= */
+        .editor-bottom-trigger { 
+            height: 150px; margin-top: 20px; border-radius: 6px; 
+            display: flex; align-items: center; justify-content: center;
+            color: var(--text-tertiary); cursor: text; transition: background 0.2s;
+        }
+        .editor-bottom-trigger:hover { background: var(--bg-hover); color: var(--text-secondary); }
+        .editor-bottom-trigger::after { content: "点击此处在末尾添加内容"; }
+
+        /* 简单表格 */
+        .flowus-table-container { width: 100%; border: 1px solid var(--border-light); border-radius: 0 0 6px 6px; overflow-x: auto; background: var(--bg-primary); }
+        .flowus-table { width: 100%; border-collapse: collapse; min-width: 100%; }
+        .flowus-table td, .flowus-table th { border: 1px solid var(--border-light); padding: 8px; min-width: 100px; }
+        .flowus-table th { background: var(--bg-secondary); text-align: left; }
+    </style>
+</head>
+<body>
+
+    <svg style="display: none;">
+        <symbol id="icon-plus" viewBox="0 0 24 24"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></symbol>
+        <symbol id="icon-drag" viewBox="0 0 24 24"><path fill="currentColor" d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></symbol>
+        <symbol id="icon-trash" viewBox="0 0 24 24"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></symbol>
+    </svg>
+
+    <div id="app">
+        <aside class="sidebar">
+            <div class="sidebar-header">FlowUs Ultimate V3</div>
+            <div id="page-list" class="sidebar-list"></div>
+        </aside>
+
+        <main id="main">
+            <header class="top-bar">
+                <span id="breadcrumb" style="font-size:14px;color:#888">...</span>
+                <div style="display:flex;gap:10px;align-items:center">
+                    <span id="save-status" style="font-size:12px;color:#aaa">已保存</span>
+                    <button class="icon-btn" onclick="App.deleteCurrentPage()"><svg><use href="#icon-trash"/></svg></button>
+                </div>
+            </header>
+
+            <div class="editor-scroller">
+                <div class="editor-container">
+                    <input type="text" id="page-title" class="page-title-input" placeholder="无标题">
+                    <div id="blocks-container"></div>
+                    <div class="editor-bottom-trigger" onclick="App.appendBlock()"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="slash-menu" class="popup-menu">
+        <div class="menu-header">基础模块</div>
+        <div class="menu-item" onclick="App.transformBlock('text')"><span class="menu-icon">T</span> 文本</div>
+        <div class="menu-item" onclick="App.transformBlock('h1')"><span class="menu-icon">H1</span> 一级标题</div>
+        <div class="menu-item" onclick="App.transformBlock('todo')"><span class="menu-icon">☑</span> 待办事项</div>
+        <div class="menu-header">高级视图</div>
+        <div class="menu-item" onclick="App.transformBlock('timeline-v')"><span class="menu-icon">⏱</span> 垂直时间轴 (可编辑)</div>
+        <div class="menu-item" onclick="App.transformBlock('timeline-h')"><span class="menu-icon">📅</span> 横向甘特图 (可拖拽)</div>
+        <div class="menu-item" onclick="App.transformBlock('table')"><span class="menu-icon">▦</span> 智能表格</div>
+    </div>
+
+    <script>
+        (function() {
+            "use strict";
+
+            // --- 1. 状态与工具 ---
+            const State = {
+                pages: [], currentPageId: null, currentBlocks: [], menuContext: null,
+                // 横向时间轴全局拖拽状态
+                dragging: { 
+                    active: false, type: null, blockId: null, eventId: null, 
+                    startX: 0, initialLeft: 0, initialWidth: 0, // 像素级
+                    initialStart: 0, initialDuration: 0, // 数据级
+                    colWidth: 60, dayWidthMs: 86400000 
+                }
+            };
+
+            const Utils = {
+                uuid: () => Date.now().toString(36) + Math.random().toString(36).substr(2),
+                debounce: (fn, delay) => { let timer; return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), delay); }; },
+                dateDiff: (d1, d2) => Math.ceil((new Date(d2) - new Date(d1)) / (1000 * 60 * 60 * 24)),
+                addDays: (date, days) => { const d = new Date(date); d.setDate(d.getDate() + days); return d; }
+            };
+
+            // --- 2. 数据库 (IndexedDB) ---
+            const DB = {
+                init: () => new Promise(r => {
+                    const req = indexedDB.open('FlowUs_Ultimate_V3', 1);
+                    req.onupgradeneeded = e => e.target.result.createObjectStore('pages', {keyPath: 'id'});
+                    req.onsuccess = e => { DB.db = e.target.result; r(); };
+                }),
+                save: (p) => DB.db.transaction('pages','readwrite').objectStore('pages').put(p),
+                getAll: () => new Promise(r => DB.db.transaction('pages','readonly').objectStore('pages').getAll().onsuccess = e => r(e.target.result||[]))
+            };
+
+            // --- 3. 渲染引擎 ---
+            const Render = {
+                sidebar() {
+                    const list = document.getElementById('page-list'); list.innerHTML = '';
+                    State.pages.sort((a,b)=>b.updatedAt-a.updatedAt).forEach(p => {
+                        const el = document.createElement('div'); el.className = 'sidebar-item';
+                        el.innerText = p.title || '无标题'; el.onclick = () => App.loadPage(p.id);
+                        list.appendChild(el);
+                    });
+                },
+
+                editor(blocks) {
+                    const container = document.getElementById('blocks-container'); container.innerHTML = '';
+                    blocks.forEach(b => container.appendChild(this.createBlockDOM(b)));
+                },
+
+                createBlockDOM(block) {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'content-block';
+                    wrapper.dataset.id = block.id;
+
+                    // === 左侧 Gutter (含+号) ===
+                    const gutter = document.createElement('div'); gutter.className = 'block-gutter';
+                    const plusBtn = document.createElement('div'); plusBtn.className = 'gutter-btn';
+                    plusBtn.innerHTML = '<svg><use href="#icon-plus"/></svg>';
+                    plusBtn.onclick = (e) => { e.stopPropagation(); App.openSlashMenu(block.id, true); };
+                    const dragHandle = document.createElement('div'); dragHandle.className = 'gutter-btn';
+                    dragHandle.innerHTML = '<svg><use href="#icon-drag"/></svg>'; dragHandle.style.cursor='grab';
+                    gutter.appendChild(plusBtn); gutter.appendChild(dragHandle);
+                    wrapper.appendChild(gutter);
+
+                    // 内容分发
+                    if (block.type === 'timeline-v') wrapper.appendChild(this.renderVerticalTimeline(block));
+                    else if (block.type === 'timeline-h') wrapper.appendChild(this.renderHorizontalTimeline(block));
+                    else if (block.type === 'table') wrapper.appendChild(this.renderTable(block));
+                    else {
+                        const content = document.createElement('div');
+                        content.className = 'block-content'; content.contentEditable = true;
+                        content.innerText = block.content;
+                        if(block.type === 'text') content.dataset.placeholder = "输入 '/' 插入命令，或点击左侧 '+'";
+                        if(block.type === 'h1') { content.style.fontSize='30px'; content.style.fontWeight='700'; content.dataset.placeholder='一级标题'; }
+                        if(block.type === 'todo') wrapper.classList.add('checked'); 
+                        
+                        content.oninput = (e) => App.handleInput(e, block.id);
+                        content.onkeydown = (e) => App.handleKey(e, block.id);
+                        wrapper.appendChild(content);
+                    }
+                    return wrapper;
+                },
+
+                // --- 渲染：可编辑的垂直时间轴 ---
+                renderVerticalTimeline(block) {
+                    const div = document.createElement('div'); div.style.width='100%';
+                    if(!block.events) block.events = [{title:'新节点', date:'2025-01-01', status:'进行中'}];
+                    
+                    let html = `<div class="block-toolbar">
+                        <input class="block-title-edit" value="${block.name||'垂直时间轴'}" onchange="App.updateBlockMeta('${block.id}','name',this.value)">
+                        <button class="tiny-btn" onclick="App.vTimelineAdd('${block.id}')">+ 节点</button>
+                    </div><div class="timeline-v2-container">`;
+
+                    block.events.forEach((ev, idx) => {
+                        html += `<div class="tl-v-item">
+                            <div class="tl-v-dot"></div>
+                            <div class="tl-v-content">
+                                <div class="tl-v-title" contenteditable onblur="App.vTimelineUpdate('${block.id}',${idx},'title',this.innerText)">${ev.title}</div>
+                                <div class="tl-v-meta">
+                                    <span class="tl-v-date" contenteditable onblur="App.vTimelineUpdate('${block.id}',${idx},'date',this.innerText)">${ev.date}</span>
+                                    <span class="tl-v-status" contenteditable onblur="App.vTimelineUpdate('${block.id}',${idx},'status',this.innerText)">${ev.status}</span>
+                                </div>
+                            </div>
+                        </div>`;
+                    });
+                    div.innerHTML = html + `</div>`;
+                    return div;
+                },
+
+                // --- 渲染：完全可交互的横向时间轴 ---
+                renderHorizontalTimeline(block) {
+                    // 默认数据
+                    if(!block.tracks) block.tracks = [{id:'t1', name:'项目 A'}, {id:'t2', name:'项目 B'}];
+                    if(!block.events) block.events = [
+                        {id:'e1', trackId:'t1', title:'需求评审', start: new Date().toISOString(), duration: 5, color:'#4285f4'},
+                        {id:'e2', trackId:'t2', title:'开发阶段', start: new Date(Date.now()+86400000*3).toISOString(), duration: 4, color:'#34a853'}
+                    ];
+
+                    const wrapper = document.createElement('div'); wrapper.className = 'ht-wrapper'; wrapper.id = `ht-wrap-${block.id}`;
+                    
+                    // 工具栏
+                    const toolbar = document.createElement('div'); toolbar.className = 'block-toolbar';
+                    toolbar.innerHTML = `
+                        <div style="display:flex;align-items:center;gap:8px">📅 <input class="block-title-edit" value="${block.name||'甘特图'}" onchange="App.updateBlockMeta('${block.id}','name',this.value)"></div>
+                        <div class="toolbar-actions">
+                            <button class="tiny-btn" onclick="App.hTimelineAdd('${block.id}')">+ 事件</button>
+                            <button class="tiny-btn" onclick="document.getElementById('ht-wrap-${block.id}').classList.toggle('ht-fullscreen')">全屏</button>
+                        </div>`;
+                    wrapper.appendChild(toolbar);
+
+                    const container = document.createElement('div'); container.className = 'ht-container';
+                    const colWidth = 60; const renderDays = 30;
+                    const startDate = new Date(); startDate.setDate(startDate.getDate()-2);
+
+                    // 头部刻度
+                    const header = document.createElement('div'); header.className = 'ht-header';
+                    header.innerHTML = `<div class="ht-corner">轨道</div><div class="ht-time-scale"></div>`;
+                    const timeScale = header.querySelector('.ht-time-scale');
+                    for(let i=0; i<renderDays; i++){
+                        const d = Utils.addDays(startDate, i);
+                        const cell = document.createElement('div'); cell.className='ht-time-cell'; cell.style.width=colWidth+'px';
+                        cell.innerText = `${d.getMonth()+1}/${d.getDate()}`;
+                        timeScale.appendChild(cell);
+                    }
+                    container.appendChild(header);
+
+                    // 主体
+                    const body = document.createElement('div'); body.className='ht-body';
+                    // 轨道列
+                    const tracksCol = document.createElement('div'); tracksCol.className='ht-tracks';
+                    block.tracks.forEach(t => {
+                        const div = document.createElement('div'); div.className='ht-track-name'; div.innerText=t.name;
+                        tracksCol.appendChild(div);
+                    });
+                    body.appendChild(tracksCol);
+
+                    // 网格与事件
+                    const grid = document.createElement('div'); grid.className='ht-grid'; grid.style.width=(renderDays*colWidth)+'px';
+                    grid.innerHTML = `<div class="ht-grid-bg" style="background-size:${colWidth}px 100%"></div>`;
+                    
+                    // 背景行
+                    block.tracks.forEach(() => {
+                        const row = document.createElement('div'); row.className='ht-track-row'; grid.appendChild(row);
+                    });
+
+                    // 事件条 (核心交互逻辑)
+                    block.events.forEach(ev => {
+                        const trackIdx = block.tracks.findIndex(t=>t.id===ev.trackId);
+                        if(trackIdx===-1) return;
+                        const left = Utils.dateDiff(startDate, ev.start) * colWidth;
+                        const width = ev.duration * colWidth;
+                        const top = trackIdx * 48 + 10;
+
+                        const bar = document.createElement('div'); bar.className='ht-event-bar';
+                        bar.style.left=left+'px'; bar.style.width=width+'px'; bar.style.top=top+'px';
+                        bar.style.backgroundColor = ev.color;
+                        bar.id = `ht-ev-${block.id}-${ev.id}`; // 给DOM添加ID方便查找
+                        
+                        bar.innerHTML = `<div class="ht-resize-handle left"></div><span>${ev.title}</span><div class="ht-resize-handle right"></div>`;
+                        
+                        // 绑定拖拽
+                        bar.onmousedown = (e) => App.handleDragStart(e, block.id, ev.id, colWidth, startDate, left, width);
+                        grid.appendChild(bar);
+                    });
+
+                    body.appendChild(grid);
+                    
+                    // 同步滚动
+                    body.onscroll = () => { timeScale.scrollLeft = body.scrollLeft; };
+                    
+                    container.appendChild(body);
+                    wrapper.appendChild(container);
+                    return wrapper;
+                },
+
+                // --- 渲染：表格 ---
+                renderTable(block) {
+                    if(!block.data) block.data = [['','',''],['','','']];
+                    const div = document.createElement('div'); div.style.width='100%';
+                    div.innerHTML = `<div class="block-toolbar"><input class="block-title-edit" value="${block.name||'表格'}" onchange="App.updateBlockMeta('${block.id}','name',this.value)">
+                    <button class="tiny-btn" onclick="App.tableAddRow('${block.id}')">+ 行</button></div>
+                    <div class="flowus-table-container"><table class="flowus-table">
+                        ${block.data.map((row,r)=>`<tr>${row.map((c,ci)=>`<td contenteditable onblur="App.tableUpdate('${block.id}',${r},${ci},this.innerText)">${c}</td>`).join('')}</tr>`).join('')}
+                    </table></div>`;
+                    return div;
+                }
+            };
+
+            const App = {
+                async init() {
+                    await DB.init();
+                    let pages = await DB.getAll();
+                    if(pages.length===0) await this.createPage(); else { State.pages=pages; this.loadPage(pages[0].id); }
+                    
+                    // 全局事件 - 拖拽系统核心
+                    document.addEventListener('mousemove', this.handleDragMove.bind(this));
+                    document.addEventListener('mouseup', this.handleDragEnd.bind(this));
+                    
+                    document.addEventListener('click', (e) => {
+                        if(!e.target.closest('#slash-menu')) document.getElementById('slash-menu').classList.remove('show');
+                    });
+                    document.getElementById('page-title').oninput = e => {
+                        const p = State.pages.find(x=>x.id===State.currentPageId);
+                        p.title = e.target.value; this.save();
+                    };
+                },
+
+                async createPage() {
+                    const p = { id: Utils.uuid(), title: '新页面', updatedAt: Date.now(), blocks: [{id: Utils.uuid(), type: 'text', content: ''}] };
+                    await DB.save(p); State.pages.unshift(p); this.loadPage(p.id);
+                },
+
+                loadPage(id) {
+                    State.currentPageId = id; const p = State.pages.find(x=>x.id===id);
+                    State.currentBlocks = p.blocks;
+                    document.getElementById('page-title').value = p.title;
+                    document.getElementById('breadcrumb').innerText = p.title || '无标题';
+                    Render.sidebar(); Render.editor(State.currentBlocks);
+                },
+
+                save: Utils.debounce(async function() {
+                    const p = State.pages.find(x=>x.id===State.currentPageId);
+                    p.blocks = State.currentBlocks; p.updatedAt = Date.now();
+                    await DB.save(p); document.getElementById('save-status').innerText = '已保存';
+                }, 500),
+
+                handleInput(e, id) {
+                    const b = State.currentBlocks.find(x=>x.id===id); b.content = e.target.innerText; this.save();
+                    if(e.target.innerText === '/') this.openSlashMenu(id);
+                },
+                
+                handleKey(e, id) {
+                    if(e.key === 'Enter') { e.preventDefault(); this.appendBlock(id); }
+                },
+
+                appendBlock(afterId) {
+                    const nb = {id: Utils.uuid(), type: 'text', content: ''};
+                    if(afterId) {
+                        const idx = State.currentBlocks.findIndex(x=>x.id===afterId); State.currentBlocks.splice(idx+1, 0, nb);
+                    } else { State.currentBlocks.push(nb); }
+                    Render.editor(State.currentBlocks); this.save();
+                    setTimeout(() => document.querySelector(`[data-id="${nb.id}"] .block-content`)?.focus(), 0);
+                },
+
+                // === 智能弹窗位置 (修复：边界检测) ===
+                openSlashMenu(id, isClick = false) {
+                    State.menuContext = id;
+                    const menu = document.getElementById('slash-menu');
+                    const block = document.querySelector(`[data-id="${id}"]`);
+                    const rect = block.getBoundingClientRect();
+                    const winH = window.innerHeight;
+
+                    menu.classList.add('show');
+                    let left = rect.left + (isClick ? 40 : 20);
+                    menu.style.left = left + 'px';
+
+                    // 向上/向下判断
+                    if (winH - rect.bottom < 300) {
+                        menu.style.top = 'auto'; menu.style.bottom = (winH - rect.top + 5) + 'px';
+                        menu.style.transformOrigin = 'bottom left';
+                    } else {
+                        menu.style.top = (rect.bottom + 5) + 'px'; menu.style.bottom = 'auto';
+                        menu.style.transformOrigin = 'top left';
+                    }
+                },
+
+                transformBlock(type) {
+                    const b = State.currentBlocks.find(x=>x.id===State.menuContext);
+                    b.type = type; b.content = '';
+                    Render.editor(State.currentBlocks); this.save();
+                    document.getElementById('slash-menu').classList.remove('show');
+                },
+
+                // === 垂直时间轴逻辑 ===
+                vTimelineAdd(blockId) {
+                    const b = State.currentBlocks.find(x=>x.id===blockId);
+                    b.events.push({title:'新节点', date:'2025-01-01', status:'进行中'});
+                    Render.editor(State.currentBlocks); this.save();
+                },
+                vTimelineUpdate(blockId, idx, key, val) {
+                    const b = State.currentBlocks.find(x=>x.id===blockId);
+                    b.events[idx][key] = val; this.save();
+                },
+
+                // === 表格逻辑 ===
+                tableAddRow(blockId) {
+                    const b = State.currentBlocks.find(x=>x.id===blockId);
+                    b.data.push(['','','']); Render.editor(State.currentBlocks); this.save();
+                },
+                tableUpdate(blockId, r, c, val) {
+                    const b = State.currentBlocks.find(x=>x.id===blockId);
+                    b.data[r][c] = val; this.save();
+                },
+
+                updateBlockMeta(id, key, val) {
+                    const b = State.currentBlocks.find(x=>x.id===id); b[key]=val; this.save();
+                },
+
+                // === 横向拖拽逻辑 (极致流畅版) ===
+                hTimelineAdd(blockId) {
+                    const b = State.currentBlocks.find(x=>x.id===blockId);
+                    b.events.push({id:Utils.uuid(), trackId:'t1', title:'新任务', start:new Date().toISOString(), duration:3, color:'#4285f4'});
+                    Render.editor(State.currentBlocks); this.save();
+                },
+                
+                handleDragStart(e, blockId, eventId, colWidth, startDate, currentLeft, currentWidth) {
+                    e.preventDefault(); e.stopPropagation();
+                    const isLeft = e.target.classList.contains('left');
+                    const isRight = e.target.classList.contains('right');
+                    const type = isLeft ? 'resize-l' : (isRight ? 'resize-r' : 'move');
+                    
+                    const block = State.currentBlocks.find(x=>x.id===blockId);
+                    const ev = block.events.find(x=>x.id===eventId);
+                    
+                    // 记录初始状态 (Pixel & Data)
+                    State.dragging = {
+                        active: true, type, blockId, eventId, colWidth, startDate, 
+                        startX: e.clientX,
+                        initialLeft: currentLeft,
+                        initialWidth: currentWidth,
+                        initialStart: new Date(ev.start).getTime(), 
+                        initialDuration: ev.duration
+                    };
+                    
+                    // 添加 dragging class 以禁用 transition
+                    document.getElementById(`ht-ev-${blockId}-${eventId}`)?.classList.add('dragging');
+                },
+                
+                handleDragMove(e) {
+                    if(!State.dragging.active) return;
+                    const s = State.dragging;
+                    const dx = e.clientX - s.startX;
+                    const bar = document.getElementById(`ht-ev-${s.blockId}-${s.eventId}`);
+                    if(!bar) return;
+
+                    // 1. 纯 DOM 操作，不触发 Render
+                    if(s.type === 'move') {
+                        bar.style.left = (s.initialLeft + dx) + 'px';
+                    } else if (s.type === 'resize-r') {
+                        bar.style.width = Math.max(s.colWidth, s.initialWidth + dx) + 'px';
+                    } else if (s.type === 'resize-l') {
+                        // 左侧拉伸需要同时改 left 和 width
+                        const newWidth = Math.max(s.colWidth, s.initialWidth - dx);
+                        const newLeft = s.initialLeft + (s.initialWidth - newWidth); 
+                        bar.style.left = newLeft + 'px';
+                        bar.style.width = newWidth + 'px';
+                    }
+                },
+                
+                handleDragEnd(e) {
+                    if(State.dragging.active) { 
+                        const s = State.dragging;
+                        const dx = e.clientX - s.startX;
+                        const dayChange = Math.round(dx / s.colWidth);
+                        
+                        // 2. 计算数据并保存
+                        const block = State.currentBlocks.find(x=>x.id===s.blockId);
+                        const ev = block.events.find(x=>x.id===s.eventId);
+                        
+                        if(s.type === 'move') {
+                            ev.start = new Date(s.initialStart + dayChange * 86400000).toISOString();
+                        } else if (s.type === 'resize-r') {
+                            ev.duration = Math.max(1, s.initialDuration + dayChange);
+                        } else if (s.type === 'resize-l') {
+                            const newDur = s.initialDuration - dayChange;
+                            if(newDur>=1) {
+                                ev.start = new Date(s.initialStart + dayChange * 86400000).toISOString();
+                                ev.duration = newDur;
+                            }
+                        }
+                        
+                        State.dragging.active = false;
+                        Render.editor(State.currentBlocks); // 最终重绘校准
+                        this.save();
+                    }
+                },
+                
+                deleteCurrentPage() { if(confirm('删除?')) DB.db.transaction('pages','readwrite').objectStore('pages').delete(State.currentPageId).onsuccess = ()=>location.reload(); }
+            };
+
+            window.App = App;
+            window.onload = () => App.init();
+        })();
+    </script>
+</body>
+</html>
